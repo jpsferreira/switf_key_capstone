@@ -1,0 +1,144 @@
+---
+title: "Swiftkey Capstone"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Week1
+```{r packages}
+require(devtools)
+library(dplyr)
+library(ggplot2)
+library(stringi)
+library(tm)
+library(RWeka)
+library(wordcloud)
+library(cowplot)
+```
+
+## download and load data
+```{r dataload, include=FALSE}
+dataset_url<-"https://d396qusza40orc.cloudfront.net/dsscapstone/dataset/Coursera-SwiftKey.zip"
+zipfile <- "Coursera-SwiftKey.zip"
+if (!file.exists(zipfile))
+        download.file(dataset_url, zipfile, method = "auto")
+# Define file paths and names
+blogs_file <- "final/en_US/en_US.blogs.txt"
+twitter_file <- "final/en_US/en_US.twitter.txt"
+news_file <- "final/en_US/en_US.news.txt"
+
+# Unzip the files
+if (!file.exists(blogs_file) || !file.exists(twitter_file) || !file.exists(news_file) )
+    unzip(zipfile)
+
+# Load the data into memory
+data_blogs   <- readLines(blogs_file, encoding="UTF-8")
+data_twitter <- readLines(twitter_file, encoding="UTF-8")
+data_news    <- readLines(news_file, encoding="UTF-8")
+```
+
+## Data statistics
+```{r datastats}
+data_stats <- data.frame(File_Name=c("US_blogs", "US_news", "US_twitter"), 
+                         FileSize=c(file.info("./final/en_US/en_US.blogs.txt")$size/1024*1024, file.info("./final/en_US/en_US.news.txt")$size/1024*1024, file.info("./final/en_US/en_US.twitter.txt")$size/1024*1024),
+                         WordCount=sapply(list(data_blogs, data_news, data_twitter), stri_stats_latex)[4,], 
+                         t(rbind(sapply(list(data_blogs, data_news, data_twitter), stri_stats_general)[c('Lines','Chars'),]
+                         )))
+data_stats
+```
+```{r stats_table}
+summary <- data.frame('FileName' = c("data_blogs","data_news","data_twitter"),
+'Size' = sapply(list(data_blogs, data_news, data_twitter),function(x){format(object.size(x),"MB")}),
+'Rows' = sapply(list(data_blogs, data_news, data_twitter), function(x){length(x)}),
+'Chars' = sapply(list(data_blogs, data_news, data_twitter), function(x){sum(nchar(x))}),
+'Lines' = sapply(list(data_blogs, data_news, data_twitter), function(x){length(x)}),
+'LongestRow' = sapply(list(data_blogs, data_news, data_twitter), function(x) {max(unlist(lapply(x,function(y) nchar(y))))})
+)
+summary
+```
+
+```{r stats_table_2}
+love<-length(grep("love", data_twitter))
+hate<-length(grep("hate", data_twitter))
+love/hate
+```
+## Sampling and Cleaning
+```{r sample}
+set.seed(12345)
+frac = 0.05
+test_data <- c(sample(data_blogs, length(data_blogs) * frac),
+              sample(data_news, length(data_news) * frac),
+              sample(data_twitter, length(data_twitter) * frac)
+          )
+          
+testdata <- iconv(test_data, "UTF-8", "ASCII", sub="")
+sample_corpus <- VCorpus(VectorSource(testdata))
+sample_corpus <- tm_map(sample_corpus, tolower)
+sample_corpus <- tm_map(sample_corpus, stripWhitespace)
+sample_corpus <- tm_map(sample_corpus, removePunctuation)
+sample_corpus <- tm_map(sample_corpus, removeNumbers)
+sample_corpus <- tm_map(sample_corpus, PlainTextDocument)
+sample_corpus <- tm_map(sample_corpus,content_transformer(function(x) gsub("http[[:alnum:]]*","",x))) # remove url
+sample_corpus <- tm_map(sample_corpus,content_transformer(function(x) iconv(x, "latin1", "ASCII", sub=""))) # remove non-ASCII characters
+
+badwords = readLines('bad_words.txt')
+sample_corpus <- tm_map(sample_corpus,removeWords, badwords)
+```
+
+## Tokenization 
+
+```{r}
+unigram <- function(x) NGramTokenizer(x, Weka_control(min=1, max=1))
+bigram <- function(x) NGramTokenizer(x, Weka_control(min=2, max=2))
+trigram <- function(x) NGramTokenizer(x, Weka_control(min=3, max=3))
+quadgram <- function(x) NGramTokenizer(x, Weka_control(min=4, max=4))
+
+unidtf <- TermDocumentMatrix(sample_corpus, control=list(tokenize=unigram))
+bidtf <- TermDocumentMatrix(sample_corpus, control=list(tokenize=bigram))
+tridtf <- TermDocumentMatrix(sample_corpus, control=list(tokenize=trigram))
+quadtf <- TermDocumentMatrix(sample_corpus, control=list(tokenize=quadgram))
+                             
+uni_tf <- findFreqTerms(unidtf, lowfreq = 50 )
+bi_tf <- findFreqTerms(bidtf, lowfreq = 50 )
+tri_tf <- findFreqTerms(tridtf, lowfreq = 10 )
+quad_tf <- findFreqTerms(quadtf, lowfreq = 10 )
+
+uni_freq <- rowSums(as.matrix(unidtf[uni_tf, ]))
+uni_freq <- data.frame(words=names(uni_freq), frequency=uni_freq)
+
+bi_freq <- rowSums(as.matrix(bidtf[bi_tf, ]))
+bi_freq <- data.frame(words=names(bi_freq), frequency=bi_freq)
+
+tri_freq <- rowSums(as.matrix(tridtf[tri_tf, ]))
+tri_freq <- data.frame(words=names(tri_freq), frequency=tri_freq)
+
+quad_freq <- rowSums(as.matrix(quadtf[quad_tf, ]))
+quad_freq <- data.frame(words=names(quad_freq), frequency=quad_freq)
+
+```
+```{r}
+wordcloud(words=uni_freq$words, freq=uni_freq$frequency, max.words=100, colors = brewer.pal(8, "Dark2"))
+```
+
+```{r}
+plot_freq1 <- ggplot(data = uni_freq[order(-uni_freq$frequency),][1:15, ], aes(x = reorder(words, -frequency), y=frequency)) + theme(axis.text.x = element_text(angle = 90)) +
+              geom_bar(stat="identity", fill="blue") + 
+              ggtitle("Top Unigram") + xlab("words") +  ylab("frequency")
+plot_freq2 <- ggplot(data = bi_freq[order(-bi_freq$frequency),][1:15, ], aes(x = reorder(words, -frequency), y=frequency)) +
+  geom_bar(stat="identity", fill="red") + theme(axis.text.x = element_text(angle = 90)) + 
+  ggtitle("Top Bigram") + xlab("words") +  ylab("frequency")
+
+plot_freq3 <- ggplot(data = tri_freq[order(-tri_freq$frequency),][1:15, ], aes(x = reorder(words, -frequency), y=frequency)) +
+  geom_bar(stat="identity", fill="#2f9359") + theme(axis.text.x = element_text(angle = 90)) + 
+  ggtitle("Top Trigram") + xlab("words") +  ylab("frequency")
+
+plot_grid(plot_freq1, plot_freq2, plot_freq3,labels='AUTO')
+```
+
+## 
+
+```{r}
+```

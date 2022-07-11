@@ -1,0 +1,53 @@
+---
+title: "Reproducible pitch"
+author: "Joao Ferreira"
+date: "July 1, 2022"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+
+## Regression models
+
+URL: https://github.com/jpsferreira/data_products_week4
+
+## Shiny app
+You can find all the details here
+URL: https://github.com/jpsferreira/data_products_week4/shiny_app
+
+## mtcars dataset
+
+dataset: `mtcars`
+
+
+```{r}
+library(datasets)
+head(mtcars, 3)
+```
+
+
+## Analysis  - Main code
+```r
+  formulaTextPoint <- reactive({
+    paste("mpg ~", "as.integer(", input$variable, ")")  })
+  
+  fit <- reactive({
+    lm(as.formula(formulaTextPoint()), data=mpgData)  })
+  ...
+  output$fit <- renderPrint({
+    summary(fit()) })
+  
+  output$mpgPlot <- renderPlot({
+    with(mpgData, {
+      plot(as.formula(formulaTextPoint()))
+      abline(fit(), col=2)
+    })  })
+```
+
+## Thank you
+
+
+
